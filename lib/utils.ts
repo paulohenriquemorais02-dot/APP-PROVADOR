@@ -10,35 +10,6 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 export function getFriendlyErrorMessage(error: unknown, context: string): string {
-<<<<<<< HEAD
-    let rawMessage = 'Ocorreu um erro desconhecido.';
-    if (error instanceof Error) {
-        rawMessage = error.message;
-    } else if (typeof error === 'string') {
-        rawMessage = error;
-    } else if (error) {
-        rawMessage = String(error);
-    }
-
-    // Check for specific unsupported MIME type error from Gemini API
-    if (rawMessage.includes("Unsupported MIME type")) {
-        try {
-            // It might be a JSON string like '{"error":{"message":"..."}}'
-            const errorJson = JSON.parse(rawMessage);
-            const nestedMessage = errorJson?.error?.message;
-            if (nestedMessage && nestedMessage.includes("Unsupported MIME type")) {
-                const mimeType = nestedMessage.split(': ')[1] || 'unsupported';
-                return `Tipo de arquivo '${mimeType}' não suportado. Por favor, use um formato como PNG, JPEG ou WEBP.`;
-            }
-        } catch (e) {
-            // Not a JSON string, but contains the text. Fallthrough to generic message.
-        }
-        // Generic fallback for any "Unsupported MIME type" error
-        return `Formato de arquivo não suportado. Por favor, faça upload de um formato de imagem como PNG, JPEG ou WEBP.`;
-    }
-    
-    return `${context}. ${rawMessage}`;
-=======
     if (error instanceof Error) {
         const message = error.message;
 
@@ -74,5 +45,4 @@ export function getFriendlyErrorMessage(error: unknown, context: string): string
     }
 
     return `${context}. Ocorreu um erro inesperado.`;
->>>>>>> e716348 (correções)
 }
