@@ -4,6 +4,10 @@
 */
 
 import { GoogleGenAI, GenerateContentResponse, Modality } from "@google/genai";
+<<<<<<< HEAD
+=======
+import { GeminiIntegrationError, getConfiguredGeminiModel, getGeminiApiKey } from './geminiConfig';
+>>>>>>> e716348 (correções)
 
 const fileToPart = async (file: File) => {
     const dataUrl = await new Promise<string>((resolve, reject) => {
@@ -32,11 +36,18 @@ const dataUrlToPart = (dataUrl: string) => {
 const handleApiResponse = (response: GenerateContentResponse): string => {
     if (response.promptFeedback?.blockReason) {
         const { blockReason, blockReasonMessage } = response.promptFeedback;
+<<<<<<< HEAD
         const errorMessage = `Request was blocked. Reason: ${blockReason}. ${blockReasonMessage || ''}`;
         throw new Error(errorMessage);
     }
 
     // Find the first image part in any candidate
+=======
+        const errorMessage = `A solicitação foi bloqueada pela IA. Motivo: ${blockReason}. ${blockReasonMessage || ''}`;
+        throw new GeminiIntegrationError(errorMessage, 'blocked-by-policy');
+    }
+
+>>>>>>> e716348 (correções)
     for (const candidate of response.candidates ?? []) {
         const imagePart = candidate.content?.parts?.find(part => part.inlineData);
         if (imagePart?.inlineData) {
@@ -47,6 +58,7 @@ const handleApiResponse = (response: GenerateContentResponse): string => {
 
     const finishReason = response.candidates?.[0]?.finishReason;
     if (finishReason && finishReason !== 'STOP') {
+<<<<<<< HEAD
         const errorMessage = `Image generation stopped unexpectedly. Reason: ${finishReason}. This often relates to safety settings.`;
         throw new Error(errorMessage);
     }
@@ -67,12 +79,70 @@ const getAiClient = () => {
             "Crie um arquivo .env.local na raiz do projeto e defina GEMINI_API_KEY=suachave antes de usar os recursos de IA."
         );
     }
+=======
+        const errorMessage = `A geração de imagem foi interrompida inesperadamente. Motivo: ${finishReason}.`;
+        throw new GeminiIntegrationError(errorMessage, 'generation-stopped');
+    }
+
+    const textFeedback = response.text?.trim();
+    const errorMessage = textFeedback
+        ? `A IA retornou texto em vez de imagem. Tente novamente com uma imagem diferente.`
+        : 'A IA não retornou uma imagem válida. Tente novamente.';
+    throw new GeminiIntegrationError(errorMessage, 'no-image-returned');
+};
+
+const normalizeError = (error: unknown): GeminiIntegrationError => {
+    if (error instanceof GeminiIntegrationError) {
+        return error;
+    }
+
+    if (error instanceof Error) {
+        const message = error.message || 'Erro inesperado na integração com a Gemini.';
+        const lower = message.toLowerCase();
+
+        if (lower.includes('resource_exhausted') || lower.includes('quota') || lower.includes('429')) {
+            return new GeminiIntegrationError('A quota da API Gemini foi excedida. Tente novamente mais tarde ou verifique o plano da sua conta.', 'quota-exceeded', message, error);
+        }
+
+        if (lower.includes('api key') || lower.includes('authentication') || lower.includes('permission denied') || lower.includes('invalid api')) {
+            return new GeminiIntegrationError('A chave da API Gemini é inválida ou não está autorizada. Verifique a chave configurada.', 'invalid-api-key', message, error);
+        }
+
+        if (lower.includes('model') && (lower.includes('not found') || lower.includes('unavailable') || lower.includes('unsupported') || lower.includes('not supported'))) {
+            return new GeminiIntegrationError('O modelo de imagem solicitado não está disponível no momento. Tente novamente mais tarde ou troque para outro modelo configurado.', 'model-unavailable', message, error);
+        }
+
+        if (lower.includes('timeout') || lower.includes('timed out') || lower.includes('etimedout')) {
+            return new GeminiIntegrationError('A requisição demorou demais e expirou. Tente novamente.', 'timeout', message, error);
+        }
+
+        if (lower.includes('network') || lower.includes('fetch failed') || lower.includes('econnrefused') || lower.includes('enotfound') || lower.includes('socket')) {
+            return new GeminiIntegrationError('Não foi possível alcançar a API Gemini devido a um problema de rede. Verifique sua conexão e tente novamente.', 'network-error', message, error);
+        }
+
+        return new GeminiIntegrationError(message, 'unknown', message, error);
+    }
+
+    return new GeminiIntegrationError('Erro inesperado na integração com a Gemini.', 'unknown', error);
+};
+
+const getAiClient = () => {
+    const apiKey = getGeminiApiKey();
+    if (!apiKey) {
+        throw new GeminiIntegrationError(
+            'A variável de ambiente GEMINI_API_KEY não está configurada. Crie um arquivo .env.local na raiz do projeto e defina GEMINI_API_KEY=suachave antes de usar os recursos de IA.',
+            'missing-api-key'
+        );
+    }
+
+>>>>>>> e716348 (correções)
     if (!cachedClient) {
         cachedClient = new GoogleGenAI({ apiKey });
     }
     return cachedClient;
 };
 
+<<<<<<< HEAD
 export const generateMannequinImage = async (gender: 'masculine' | 'feminine'): Promise<string> => {
     const ai = getAiClient();
     const prompt = `Generate a full-body, photorealistic, professional fashion mannequin, wearing plain, form-fitting, neutral gray leggings and a matching short-sleeve t-shirt. The mannequin should be in a relaxed standing pose with hands on hips. The background must be a clean, neutral studio backdrop (light gray, #f0f0f0). The mannequin should be ${gender}. Return ONLY the final image.`;
@@ -85,6 +155,36 @@ export const generateMannequinImage = async (gender: 'masculine' | 'feminine'): 
         },
     });
     return handleApiResponse(response);
+=======
+const createRequestConfig = () => ({
+    responseModalities: [Modality.IMAGE] as const,
+});
+
+const executeWithErrorHandling = async <T>(operation: () => Promise<T>): Promise<T> => {
+    try {
+        return await operation();
+    } catch (error) {
+        const normalized = normalizeError(error);
+        console.error('[GeminiIntegration]', normalized.code, normalized.details ?? normalized.cause ?? error);
+        throw normalized;
+    }
+};
+
+let cachedClient: GoogleGenAI | null = null;
+
+export const generateMannequinImage = async (gender: 'masculine' | 'feminine'): Promise<string> => {
+    const ai = getAiClient();
+    const prompt = `Generate a full-body, photorealistic, professional fashion mannequin, wearing plain, form-fitting, neutral gray leggings and a matching short-sleeve t-shirt. The mannequin should be in a relaxed standing pose with hands on hips. The background must be a clean, neutral studio backdrop (light gray, #f0f0f0). The mannequin should be ${gender}. Return ONLY the final image.`;
+
+    return executeWithErrorHandling(async () => {
+        const response = await ai.models.generateContent({
+            model: getConfiguredGeminiModel(),
+            contents: { parts: [{ text: prompt }] },
+            config: createRequestConfig(),
+        });
+        return handleApiResponse(response);
+    });
+>>>>>>> e716348 (correções)
 };
 
 export const generateVirtualTryOnImage = async (modelImageUrl: string, garmentImage: File): Promise<string> => {
@@ -99,6 +199,7 @@ export const generateVirtualTryOnImage = async (modelImageUrl: string, garmentIm
 3.  **Preserve the Background:** The entire background from the 'model image' MUST be preserved perfectly.
 4.  **Apply the Garment:** Realistically fit the new garment onto the person. It should adapt to their pose with natural folds, shadows, and lighting consistent with the original scene.
 5.  **Output:** Return ONLY the final, edited image. Do not include any text.`;
+<<<<<<< HEAD
     const response = await ai.models.generateContent({
         model,
         contents: { parts: [modelImagePart, garmentImagePart, { text: prompt }] },
@@ -108,12 +209,24 @@ export const generateVirtualTryOnImage = async (modelImageUrl: string, garmentIm
         },
     });
     return handleApiResponse(response);
+=======
+
+    return executeWithErrorHandling(async () => {
+        const response = await ai.models.generateContent({
+            model: getConfiguredGeminiModel(),
+            contents: { parts: [modelImagePart, garmentImagePart, { text: prompt }] },
+            config: createRequestConfig(),
+        });
+        return handleApiResponse(response);
+    });
+>>>>>>> e716348 (correções)
 };
 
 export const generatePoseVariation = async (tryOnImageUrl: string, poseInstruction: string): Promise<string> => {
     const ai = getAiClient();
     const tryOnImagePart = dataUrlToPart(tryOnImageUrl);
     const prompt = `You are an expert fashion photographer AI. Take this image and regenerate it from a different perspective. The person, clothing, and background style must remain identical. The new perspective should be: "${poseInstruction}". Return ONLY the final image.`;
+<<<<<<< HEAD
     const response = await ai.models.generateContent({
         model,
         contents: { parts: [tryOnImagePart, { text: prompt }] },
@@ -123,4 +236,15 @@ export const generatePoseVariation = async (tryOnImageUrl: string, poseInstructi
         },
     });
     return handleApiResponse(response);
+=======
+
+    return executeWithErrorHandling(async () => {
+        const response = await ai.models.generateContent({
+            model: getConfiguredGeminiModel(),
+            contents: { parts: [tryOnImagePart, { text: prompt }] },
+            config: createRequestConfig(),
+        });
+        return handleApiResponse(response);
+    });
+>>>>>>> e716348 (correções)
 };
