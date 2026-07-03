@@ -122,6 +122,48 @@ const executeWithErrorHandling = async <T>(operation: () => Promise<T>): Promise
     }
 };
 
+// Retry helper with exponential backoff + jitter for retryable transient errors (rate limits, timeouts, network)
+const retryWithBackoff = async <T>(
+    fn: () => Promise<T>,
+    retries = 5,
+    baseMs = 500
+): Promise<T> => {
+    for (let attempt = 0; attempt < retries; attempt++) {
+        try {
+            return await fn();
+        } catch (err: unknown) {
+            const normalizedErr = err instanceof GeminiIntegrationError ? err : normalizeError(err);
+
+            const retryableCodes = new Set(['quota-exceeded', 'timeout', 'network-error']);
+            const isRetryable = (() => {
+                if (normalizedErr instanceof GeminiIntegrationError) {
+                    // Retry on rate-limit / quota / transient network/timeouts
+                    return retryableCodes.has(normalizedErr.code);
+                }
+                // Fallback: inspect message
+                try {
+                    const msg = String((err as Error)?.message ?? err).toLowerCase();
+                    return msg.includes('429') || msg.includes('rate limit') || msg.includes('quota') || msg.includes('timeout') || msg.includes('timed out') || msg.includes('etimedout') || msg.includes('network') || msg.includes('fetch failed') || msg.includes('econnrefused') || msg.includes('enotfound');
+                } catch {
+                    return false;
+                }
+            })();
+
+            if (!isRetryable || attempt === retries - 1) {
+                // rethrow original error to be normalized by outer handler
+                throw err;
+            }
+
+            const jitter = Math.floor(Math.random() * 100);
+            const delay = Math.floor(baseMs * Math.pow(2, attempt)) + jitter;
+            await new Promise((r) => setTimeout(r, delay));
+        }
+    }
+
+    // Should be unreachable
+    return fn();
+};
+
 let cachedClient: GoogleGenAI | null = null;
 
 export const generateMannequinImage = async (gender: 'masculine' | 'feminine'): Promise<string> => {
@@ -129,11 +171,11 @@ export const generateMannequinImage = async (gender: 'masculine' | 'feminine'): 
     const prompt = `Generate a full-body, photorealistic, professional fashion mannequin, wearing plain, form-fitting, neutral gray leggings and a matching short-sleeve t-shirt. The mannequin should be in a relaxed standing pose with hands on hips. The background must be a clean, neutral studio backdrop (light gray, #f0f0f0). The mannequin should be ${gender}. Return ONLY the final image.`;
 
     return executeWithErrorHandling(async () => {
-        const response = await ai.models.generateContent({
+        const response = await retryWithBackoff(() => ai.models.generateContent({
             model: getConfiguredGeminiModel(),
             contents: { parts: [{ text: prompt }] },
             config: createRequestConfig(),
-        });
+        }));
         return handleApiResponse(response);
     });
 };
@@ -152,11 +194,11 @@ export const generateVirtualTryOnImage = async (modelImageUrl: string, garmentIm
 5.  **Output:** Return ONLY the final, edited image. Do not include any text.`;
 
     return executeWithErrorHandling(async () => {
-        const response = await ai.models.generateContent({
+        const response = await retryWithBackoff(() => ai.models.generateContent({
             model: getConfiguredGeminiModel(),
             contents: { parts: [modelImagePart, garmentImagePart, { text: prompt }] },
             config: createRequestConfig(),
-        });
+        }));
         return handleApiResponse(response);
     });
 };
@@ -167,11 +209,11 @@ export const generatePoseVariation = async (tryOnImageUrl: string, poseInstructi
     const prompt = `You are an expert fashion photographer AI. Take this image and regenerate it from a different perspective. The person, clothing, and background style must remain identical. The new perspective should be: "${poseInstruction}". Return ONLY the final image.`;
 
     return executeWithErrorHandling(async () => {
-        const response = await ai.models.generateContent({
+        const response = await retryWithBackoff(() => ai.models.generateContent({
             model: getConfiguredGeminiModel(),
             contents: { parts: [tryOnImagePart, { text: prompt }] },
             config: createRequestConfig(),
-        });
+        }));
         return handleApiResponse(response);
     });
 };
